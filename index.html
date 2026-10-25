@@ -529,9 +529,11 @@ async function enterExistingRoom(code, owner){
     const m = await get(ref(db, `rooms/${code}/meta`));
     if (!m.exists()) { ls.del('bingo_room'); return false; }
     if (owner && m.val().owner !== S.uid) { ls.del('bingo_room'); return false; }
+    let me = null;
     if (!owner) {
-      const me = await get(ref(db, `rooms/${code}/players/${S.uid}`));
+      me = await get(ref(db, `rooms/${code}/players/${S.uid}`));
       if (!me.exists()) { ls.del('bingo_room'); return false; }
+      S.currentPlayerId = me.val()?.playerId || S.currentPlayerId;
     }
     S.room = code;
     subscribeRoom(code);
@@ -1020,6 +1022,9 @@ async function resetRound(){
   S.busy = true; render();
   try {
     if(S.round && S.round.status === 'joining') await refundJoiningCards();
+    const opDeletes = {};
+    Object.keys(S.gameOps || {}).forEach(uid => { opDeletes[`rooms/${S.room}/gameOps/${uid}`] = null; });
+    if (Object.keys(opDeletes).length) await update(ref(db), opDeletes);
     await remove(ref(db, `rooms/${S.room}/round`));
     await remove(ref(db, `rooms/${S.room}/cards`));
     await remove(ref(db, `rooms/${S.room}/claims`));
@@ -1035,7 +1040,9 @@ async function stopRound(){
   try {
     if(S.round.status === 'joining'){
       await refundJoiningCards();
-      await remove(ref(db, `rooms/${S.room}/gameOps`));
+      const opDeletes = {};
+      Object.keys(S.gameOps || {}).forEach(uid => { opDeletes[`rooms/${S.room}/gameOps/${uid}`] = null; });
+      if (Object.keys(opDeletes).length) await update(ref(db), opDeletes);
       await remove(ref(db, `rooms/${S.room}/round`));
       await remove(ref(db, `rooms/${S.room}/cards`));
       await remove(ref(db, `rooms/${S.room}/claims`));
@@ -1056,7 +1063,7 @@ async function pickCard(no){
   if (!action) return;
   const opId = requestId();
   try {
-    await set(ref(db,`${S.room}/gameOps/${S.uid}`),{
+    await set(ref(db,`rooms/${S.room}/gameOps/${S.uid}`),{
       uid:S.uid, action, card:String(no), fee, roundId:S.round.roundId, opId, status:'pending', at:serverTimestamp()
     });
     toast(action === 'buy' ? 'የካርድ ጥያቄ ተልኳል፤ አጫዋቹ እያረጋገጠ ነው።' : 'የካርድ መልቀቂያ ጥያቄ ተልኳል።');
